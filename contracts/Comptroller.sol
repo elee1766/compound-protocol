@@ -955,7 +955,7 @@ contract Comptroller is ComptrollerV5Storage, ComptrollerInterface, ComptrollerE
       * @param newBorrowCaps The new borrow cap values in underlying to be set. A value of 0 corresponds to unlimited borrowing.
       */
     function _setMarketBorrowCaps(CToken[] calldata cTokens, uint[] calldata newBorrowCaps) external {
-    	require(msg.sender == admin || msg.sender == borrowCapGuardian, "only admin or borrow cap guardian can set borrow caps"); 
+    	require(msg.sender == admin || msg.sender == borrowCapGuardian, "only admin or borrow cap guardian can set borrow caps");
 
         uint numMarkets = cTokens.length;
         uint numBorrowCaps = newBorrowCaps.length;
@@ -1066,31 +1066,42 @@ contract Comptroller is ComptrollerV5Storage, ComptrollerInterface, ComptrollerE
      */
     function setCompSpeedInternal(CToken cToken, uint compSpeed) internal {
         uint currentCompSpeed = compSpeeds[address(cToken)];
-        if (currentCompSpeed != 0) {
-            // note that COMP speed could be set to 0 to halt liquidity rewards for a market
-            Exp memory borrowIndex = Exp({mantissa: cToken.borrowIndex()});
-            updateCompSupplyIndex(address(cToken));
-            updateCompBorrowIndex(address(cToken), borrowIndex);
-        } else if (compSpeed != 0) {
+        if (currentCompSpeed == 0){
             // Add the COMP market
             Market storage market = markets[address(cToken)];
             require(market.isListed == true, "comp market is not listed");
-
             if (compSupplyState[address(cToken)].index == 0 && compSupplyState[address(cToken)].block == 0) {
-                compSupplyState[address(cToken)] = CompMarketState({
-                    index: compInitialIndex,
-                    block: safe32(getBlockNumber(), "block number exceeds 32 bits")
-                });
+                // no entry exists. if the speed is not 0, then create one
+                if(compSpeed != 0){
+                    compSupplyState[address(cToken)] = CompMarketState({
+                        index: compInitialIndex,
+                        block: safe32(getBlockNumber(), "block number exceeds 32 bits")
+                    });
+                }
+            }else{
+                // an entry already exists, so attempt to update it
+                updateCompSupplyIndex(address(cToken));
             }
 
             if (compBorrowState[address(cToken)].index == 0 && compBorrowState[address(cToken)].block == 0) {
-                compBorrowState[address(cToken)] = CompMarketState({
+                // no entry exists. if the speed is not 0, then create one
+                if(compSpeed != 0){
+                    compBorrowState[address(cToken)] = CompMarketState({
                     index: compInitialIndex,
                     block: safe32(getBlockNumber(), "block number exceeds 32 bits")
-                });
+                    });
+                }
+            }else{
+                // an entry already exists so attempt to update it
+                Exp memory borrowIndex = Exp({mantissa: cToken.borrowIndex()});
+                updateCompBorrowIndex(address(cToken), borrowIndex);
             }
+        }else{
+            //comp speed is already set and so the index entries exist
+            Exp memory borrowIndex = Exp({mantissa: cToken.borrowIndex()});
+            updateCompSupplyIndex(address(cToken));
+            updateCompBorrowIndex(address(cToken), borrowIndex);
         }
-
         if (currentCompSpeed != compSpeed) {
             compSpeeds[address(cToken)] = compSpeed;
             emit CompSpeedUpdated(cToken, compSpeed);
@@ -1333,8 +1344,8 @@ contract Comptroller is ComptrollerV5Storage, ComptrollerInterface, ComptrollerE
      */
     function isDeprecated(CToken cToken) public view returns (bool) {
         return
-            markets[address(cToken)].collateralFactorMantissa == 0 && 
-            borrowGuardianPaused[address(cToken)] == true && 
+            markets[address(cToken)].collateralFactorMantissa == 0 &&
+            borrowGuardianPaused[address(cToken)] == true &&
             cToken.reserveFactorMantissa() == 1e18
         ;
     }
